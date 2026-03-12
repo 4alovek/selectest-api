@@ -34,13 +34,14 @@ async def parse_and_store(session: AsyncSession) -> int:
             payload = await fetch_page(client, page)
             parsed_payloads = []
             for item in payload.items:
+                city_name = item.city.name.strip() if item.city else None
                 parsed_payloads.append(
                     {
                         "external_id": item.id,
                         "title": item.title,
                         "timetable_mode_name": item.timetable_mode.name,
                         "tag_name": item.tag.name,
-                        "city_name": item.city.name.strip(),
+                        "city_name": city_name,
                         "published_at": item.published_at,
                         "is_remote_available": item.is_remote_available,
                         "is_hot": item.is_hot,

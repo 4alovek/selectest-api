@@ -1,6 +1,7 @@
 from typing import Iterable, List, Optional
 
-from sqlalchemy import Select, select
+from sqlalchemy import Select, select, text
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.vacancy import Vacancy
@@ -62,28 +63,44 @@ async def delete_vacancy(session: AsyncSession, vacancy: Vacancy) -> None:
 async def upsert_external_vacancies(
     session: AsyncSession, payloads: Iterable[dict]
 ) -> int:
-    external_ids = [payload["external_id"] for payload in payloads if payload["external_id"]]
-    if external_ids:
-        existing_result = await session.execute(
-            select(Vacancy.external_id).where(Vacancy.external_id.in_(external_ids))
-        )
-        existing_ids = set(existing_result.scalars().all())
-    else:
-        existing_ids = {}
+    payloads = list(payloads)
+    if not payloads:
+        return 0
+
+    with_external_id = [
+        payload for payload in payloads if payload.get("external_id") is not None
+    ]
+    without_external_id = [
+        payload for payload in payloads if payload.get("external_id") is None
+    ]
 
     created_count = 0
-    for payload in payloads:
-        ext_id = payload["external_id"]
-        if ext_id and ext_id in existing_ids:
-            result = await session.execute(
-                select(Vacancy).where(Vacancy.external_id == ext_id)
+    if with_external_id:
+        insert_stmt = insert(Vacancy).values(with_external_id)
+        excluded = insert_stmt.excluded
+        update_columns = {
+            "title": excluded.title,
+            "timetable_mode_name": excluded.timetable_mode_name,
+            "tag_name": excluded.tag_name,
+            "city_name": excluded.city_name,
+            "published_at": excluded.published_at,
+            "is_remote_available": excluded.is_remote_available,
+            "is_hot": excluded.is_hot,
+        }
+        upsert_stmt = (
+            insert_stmt.on_conflict_do_update(
+                index_elements=[Vacancy.external_id],
+                set_=update_columns,
             )
-            vacancy = result.scalar_one()
-            for field, value in payload.items():
-                setattr(vacancy, field, value)
-        else:
-            session.add(Vacancy(**payload))
-            created_count += 1
+            # xmax = 0 is true for freshly inserted rows
+            .returning(text("(xmax = 0) AS inserted"))
+        )
+        result = await session.execute(upsert_stmt)
+        created_count += sum(1 for row in result if row.inserted)
+
+    for payload in without_external_id:
+        session.add(Vacancy(**payload))
+        created_count += 1
 
     await session.commit()
     return created_count

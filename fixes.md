@@ -26,3 +26,5 @@ AttributeError: 'NoneType' object has no attribute 'name'
 # Шаг 4: Стабильность парсинга
 ### Баг 7. Изменил строку httpx.AsyncClient через async with, чтобы не было утечки соединений
 ### Баг 8. Исправил гонку при параллельном запуске парсинга: сделал атомарный upsert по external_id
+
+# Скриншоты с работой api в swagger'е приложил в папке photos
